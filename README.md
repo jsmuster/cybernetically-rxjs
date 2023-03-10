@@ -2,7 +2,7 @@
 Cybernetically RxJS ES6 implementation
 /*******************************************************
 
-* Copyright (C) 2023 Cybernetically Inc / Arseniy Tomkevich <jsmastery@gmail.com>
+* Copyright (C) 2023 Cybernetically Inc., Arseniy Tomkevich <jsmastery@gmail.com>
 
 *
 
