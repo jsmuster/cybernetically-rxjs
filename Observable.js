@@ -2,6 +2,60 @@ const RxObservable = class
 {
   #executor
   #destroyer
+
+  #pipes = null
+
+  #next
+
+  #processNext(val)
+  {
+    let pipes = this.#pipes;
+
+    if(pipes != null && pipes.length > 0)
+    {
+      let count = 0;
+      let result;
+
+      if(pipes.length == 1)
+      {
+        result = pipes[0](val, 0);
+      }
+      else
+      {
+        for(const pipe of pipes)
+        {
+          result = pipe(val);
+
+          if(result.done == true)
+          {
+            break;
+          }
+          else
+          {
+            val = result.value;
+          }
+
+          count++;
+        };
+        
+        if(count == pipes.length)
+        {
+          try
+          {
+            this.#next(val);
+          }
+          catch(e) {
+            console.log("err", e.stack != null ? e.stack.toString() : e)
+          }
+        }
+      }
+    }
+    else
+    {
+      this.#next(val);
+    }
+  }
+
   constructor(executor = null, destroyer = null)
   {
     if(executor != null && typeof(executor) == 'function')
@@ -16,6 +70,7 @@ const RxObservable = class
       this.#destroyer = destroyer;
     }
   }
+
   subscribe(subscriber, error, complete)
   {
     if(subscriber != null)
@@ -24,7 +79,9 @@ const RxObservable = class
     
       if(typeof(subscriber) == 'function')
       {
-        sub = {next: subscriber};
+        this.#next = subscriber;
+
+        sub = {next: this.#processNext.bind(this)};
 
         if(error != null)
         {
@@ -48,9 +105,12 @@ const RxObservable = class
       }
       else if(typeof(subscriber) == 'object' && subscriber.next != null)
       {
-        sub = {next: (val) => {
+        this.#next = (val) => {
+          //console.log("*n 1")
           subscriber.next.call(subscriber, val);
-        }};
+        };
+
+        sub = {next: this.#processNext};
         
         if(subscriber.error != null)
         {
@@ -93,10 +153,18 @@ const RxObservable = class
     }
 
   }
-  pipe()
+
+  pipe(...fns)
   {
-    
+    if(fns != null && fns.length > 0)
+    {
+      //this.#pipes = new RxPipeable(fns);
+      this.#pipes = fns;
+    }
+
+    return this;
   }
+
 };
 
 const RxSubscription = class
@@ -172,7 +240,7 @@ rxjs.interval = (time) => {
 rxjs.range = (from, count) => {
 
   return rxjs.Observable.create((subscriber) => {
-    
+
     for(let i = from, l = from + count; i < l; i++)
     {
       subscriber.next(i);
@@ -186,13 +254,96 @@ rxjs.range = (from, count) => {
 /* rxjs Operators */
 rxjs.operators = {};
 
-rxjs.operators.filter = () => {
+/* filter - filters values emitted by the source Observable */
+/* @predicate function evaluates each value emitted. If 'true' is returned, the value is emitted into the chain */
+/* @thisArg an optional argument, which becomes 'this' withint he predicate */
+rxjs.operators.filter = (predicate, thisArg) => {
   
+  let ret;
+  /* exec function */
+  let efnfilter = (val, index) => {
+
+    ret = predicate(val, index);
+
+    if(ret === true)
+    {
+      return {value: val, done: false};
+    }
+    else
+    {
+      /* ends the iterator sequence here */
+      return {value: undefined, done: true};
+    }
+  };
+
+  if(thisArg != null)
+  {
+    return efnfilter.bind(thisArg);
+  }
+  else
+  {
+    return efnfilter;
+  }
 };
 
-rxjs.operators.map = () => {
+/* map - a function that runs for every value emitted by the source, it transforms the emitted value */
+rxjs.operators.map = (transformer, thisArg) => {
   
+  let ret;
+
+  /* map function */
+  let efnmap = (val, index) => {
+    
+    ret = transformer(val, index);
+    
+    return {value: ret, done: false};
+  };
+
+  if(thisArg != null)
+  {
+    return efnmap.bind(thisArg);
+  }
+  else
+  {
+    return efnmap;
+  }
+
 };
 
+/* emitted by the source Observable, or all of the values from the source */
+rxjs.operators.take = (count) => {
+  
+  let efntake;
 
+  if(count > 0)
+  {
+    let seen = 0;
+
+    /* map function */
+    efntake = (val) => {
+
+      if(++seen <= count)
+      {
+        return {value: val, done: false};
+      }
+      else
+      {
+        return {done: true};
+      }
+
+    };
+
+  }
+  else
+  {
+    efntake = (val) => {
+      return {done: true};
+    };
+  }
+
+  return efntake;
+
+};
+
+module.exports = rxjs;
 
