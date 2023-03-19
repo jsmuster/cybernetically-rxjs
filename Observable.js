@@ -7,7 +7,27 @@ const RxObservable = class
 
   #next
 
-  #processNext(val)
+  #defaultState
+
+  constructor(executor = null, destroyer = null, scope = {})
+  {
+    // clone the scope object
+    this.#defaultState = scope;
+
+    if(executor != null && typeof(executor) == 'function')
+    {
+      // save the method into a private variable
+      this.#executor = executor;
+    }
+
+    if(destroyer != null && typeof(destroyer) == 'function')
+    {
+      // save the method into a private variable
+      this.#destroyer = destroyer;
+    }
+  }
+
+  #processNext(currScope, val)
   {
     let pipes = this.#pipes;
 
@@ -24,7 +44,7 @@ const RxObservable = class
       {
         for(const pipe of pipes)
         {
-          result = pipe(val);
+          result = pipe.call(currScope.scope, val);
 
           if(result.done == true)
           {
@@ -37,12 +57,12 @@ const RxObservable = class
 
           count++;
         };
-        
+
         if(count == pipes.length)
         {
           try
           {
-            this.#next(val);
+            currScope.next(val);
           }
           catch(e) {
             console.log("err", e.stack != null ? e.stack.toString() : e)
@@ -56,32 +76,19 @@ const RxObservable = class
     }
   }
 
-  constructor(executor = null, destroyer = null)
-  {
-    if(executor != null && typeof(executor) == 'function')
-    {
-      // save the method into a private variable
-      this.#executor = executor;
-    }
-
-    if(destroyer != null && typeof(destroyer) == 'function')
-    {
-      // save the method into a private variable
-      this.#destroyer = destroyer;
-    }
-  }
-
   subscribe(subscriber, error, complete)
   {
     if(subscriber != null)
     {
+      let currScope = Object.assign({}, this.#defaultState);
+
       let sub;
-    
+      
       if(typeof(subscriber) == 'function')
       {
-        this.#next = subscriber;
+        //this.#next = subscriber;
 
-        sub = {next: this.#processNext.bind(this)};
+        sub = {next: this.#processNext.bind(this, {scope:currScope, next: subscriber})};
 
         if(error != null)
         {
@@ -105,18 +112,20 @@ const RxObservable = class
       }
       else if(typeof(subscriber) == 'object' && subscriber.next != null)
       {
-        this.#next = (val) => {
+        let next = (val) => {
           //console.log("*n 1")
           subscriber.next.call(subscriber, val);
         };
 
-        sub = {next: this.#processNext};
+        sub = {next: this.#processNext.bind(this, {scope: currScope, next: next})};
         
         if(subscriber.error != null)
         {
+
           sub.error = () => {
             subscriber.error.call(subscriber);
           };
+
         }
         else
         {
@@ -139,14 +148,17 @@ const RxObservable = class
 
       try
       {
-        this.#executor(sub);
+        let currExecutor = this.#executor.bind(currScope);
+
+        currExecutor(sub);
       }
       catch(e) {
       }
 
       if(this.#destroyer != null)
       {
-        let subscription = new RxSubscription(this.#destroyer);
+        let currDestroyer = this.#destroyer.bind(currScope);
+        let subscription = new RxSubscription(currDestroyer);
 
         return subscription;
       }
@@ -194,8 +206,8 @@ const RxSubscription = class
   }
 };
 
-const rxjs = {Observable:{create:(subscriber, destroyer) => {
-  return new RxObservable(subscriber, destroyer);
+const rxjs = {Observable:{create:(subscriber, destroyer, scope) => {
+  return new RxObservable(subscriber, destroyer, scope);
 }}};
 
 /* of Operator */
@@ -215,24 +227,28 @@ rxjs.of = (...args) => {
 /* interval Operator */
 rxjs.interval = (time) => {
 
-  // interval id to be used with subscription to unsubscribe
-  let iid;
+  let scope = {time:time};
 
-  // number that gets incremented every time
-  let num = 0;
+      // interval id to be used with subscription to unsubscribe
+      scope.iid = null;
+
+      // number that gets incremented every time
+      scope.num = 0;
 
   // create a subscription object that is used to unsubscribe and clear the interval
-  return rxjs.Observable.create((subscriber) => {
+  return rxjs.Observable.create(function executor(subscriber) {
+    
+    this.iid = setInterval( () => {
 
-    iid = setInterval( () => {
+      subscriber.next(this.num++);
 
-      subscriber.next(num++);
+    }, this.time);
 
-    }, time);
+  }, function destroyer () {
 
-  }, () => {
-    clearInterval(iid);
-  });
+    clearInterval(this.iid);
+
+  }, scope);
 
 };
 
@@ -311,7 +327,7 @@ rxjs.operators.map = (transformer, thisArg) => {
 };
 
 /* emitted by the source Observable, or all of the values from the source */
-rxjs.operators.take = (count) => {
+rxjs.operators.take = function take(count) {
   
   let efntake;
 
@@ -320,9 +336,11 @@ rxjs.operators.take = (count) => {
     let seen = 0;
 
     /* map function */
-    efntake = (val) => {
+    efntake = function (val) {
 
-      if(++seen <= count)
+      if(this.seen == undefined) this.seen = 0;
+
+      if(++this.seen <= count)
       {
         return {value: val, done: false};
       }
