@@ -1,4 +1,4 @@
-const RxObservable = class
+class RxObservable
 {
   #executor
   #destroyer
@@ -9,10 +9,10 @@ const RxObservable = class
 
   #defaultState
 
-  constructor(executor = null, destroyer = null, scope = {})
+  constructor(executor = null, destroyer = null, defscope = {})
   {
     // clone the scope object
-    this.#defaultState = scope;
+    this.#defaultState = defscope;
 
     if(executor != null && typeof(executor) == 'function')
     {
@@ -27,7 +27,7 @@ const RxObservable = class
     }
   }
 
-  #processNext(currScope, val)
+  #processNext(cfg, val)
   {
     let pipes = this.#pipes;
 
@@ -38,13 +38,13 @@ const RxObservable = class
 
       if(pipes.length == 1)
       {
-        result = pipes[0](val, 0);
+        result = pipes[0].call(cfg.scope, val, 0);
       }
       else
       {
         for(const pipe of pipes)
         {
-          result = pipe.call(currScope.scope, val);
+          result = pipe.call(cfg.scope, val, count);
 
           if(result.done == true)
           {
@@ -62,7 +62,7 @@ const RxObservable = class
         {
           try
           {
-            currScope.next(val);
+            cfg.next(val);
           }
           catch(e) {
             console.log("err", e.stack != null ? e.stack.toString() : e)
@@ -72,79 +72,87 @@ const RxObservable = class
     }
     else
     {
-      this.#next(val);
+      cfg.next(val);
     }
+  }
+
+  /* this method is used to generate a subscriber object with next, error and complete methods */
+  getSubscriber(subscriber, error, complete)
+  {
+    let currScope = Object.assign({}, this.#defaultState);
+
+    let sub;
+    
+    if(typeof(subscriber) == 'function')
+    {
+      //this.#next = subscriber;
+
+      sub = {next: this.#processNext.bind(this, {scope:currScope, next: subscriber})};
+
+      if(error != null)
+      {
+        sub.error = error;
+      }
+      else
+      {
+        // dub method in case its used
+        sub.error = () => {};
+      }
+      
+      if(complete != null)
+      {
+        sub.complete = complete;
+      }
+      else
+      {
+        // dub method in case its used
+        sub.complete = () => {};
+      }
+    }
+    else if(typeof(subscriber) == 'object' && subscriber.next != null)
+    {
+      let next = (val) => {
+        subscriber.next.call(subscriber, val);
+      };
+
+      sub = {next: this.#processNext.bind(this, {scope: currScope, next: next})};
+      
+      if(subscriber.error != null)
+      {
+
+        sub.error = () => {
+          subscriber.error.call(subscriber);
+        };
+
+      }
+      else
+      {
+        // dub method in case its used
+        sub.error = () => {};
+      }
+      
+      if(subscriber.complete != null)
+      {
+        sub.complete = () => {
+          subscriber.complete.call(subscriber);
+        };
+      }
+      else
+      {
+        // dub method in case its used
+        sub.complete = () => {};
+      }
+    }
+
+    return {sub, currScope};
   }
 
   subscribe(subscriber, error, complete)
   {
+
     if(subscriber != null)
     {
-      let currScope = Object.assign({}, this.#defaultState);
-
-      let sub;
-      
-      if(typeof(subscriber) == 'function')
-      {
-        //this.#next = subscriber;
-
-        sub = {next: this.#processNext.bind(this, {scope:currScope, next: subscriber})};
-
-        if(error != null)
-        {
-          sub.error = error;
-        }
-        else
-        {
-          // dub method in case its used
-          sub.error = () => {};
-        }
-        
-        if(complete != null)
-        {
-          sub.complete = complete;
-        }
-        else
-        {
-          // dub method in case its used
-          sub.complete = () => {};
-        }
-      }
-      else if(typeof(subscriber) == 'object' && subscriber.next != null)
-      {
-        let next = (val) => {
-          //console.log("*n 1")
-          subscriber.next.call(subscriber, val);
-        };
-
-        sub = {next: this.#processNext.bind(this, {scope: currScope, next: next})};
-        
-        if(subscriber.error != null)
-        {
-
-          sub.error = () => {
-            subscriber.error.call(subscriber);
-          };
-
-        }
-        else
-        {
-          // dub method in case its used
-          sub.error = () => {};
-        }
-        
-        if(subscriber.complete != null)
-        {
-          sub.complete = () => {
-            subscriber.complete.call(subscriber);
-          };
-        }
-        else
-        {
-          // dub method in case its used
-          sub.complete = () => {};
-        }
-      }
+      let {sub, currScope} = this.getSubscriber(subscriber, error, complete);
 
       try
       {
@@ -158,6 +166,7 @@ const RxObservable = class
       if(this.#destroyer != null)
       {
         let currDestroyer = this.#destroyer.bind(currScope);
+
         let subscription = new RxSubscription(currDestroyer);
 
         return subscription;
@@ -179,7 +188,7 @@ const RxObservable = class
 
 };
 
-const RxSubscription = class
+class RxSubscription
 {
   #executor
   constructor(executor = null)
@@ -206,9 +215,92 @@ const RxSubscription = class
   }
 };
 
+class rxSubject extends RxObservable
+{
+  closed = false;
+  stopped = false;
+  error = false;
+
+  #subscriptions = [];
+
+  subscribe(subscriber, error, complete)
+  {
+    //let {sub, currScope} = this.getSubscriber(subscriber, error, complete);
+
+    this.#subscriptions.push(this.getSubscriber(subscriber, error, complete));
+  }
+
+  /* unsubscribes all subscriptions from the Subject */
+  unsubscribe()
+  {
+    this.closed = true;
+    this.stopped = true;
+
+    this.#subscriptions = null;
+    this.#subscriptions = [];
+  }
+
+  error(msg)
+  {
+
+    if(this.closed == false && this.stopped == false)
+    {
+      this.error = true;
+      this.stopped = true;
+
+      let subs = this.#subscriptions;
+
+      for(const subCfg of subs)
+      {
+        const {sub, currScope} = subCfg;
+
+        sub.error(msg);
+      }
+    }
+
+  }
+
+  complete()
+  {
+    if(this.closed == false && this.stopped == false)
+    {
+      this.stopped = true;
+
+      let subs = this.#subscriptions;
+
+      for(const subCfg of subs)
+      {
+        const {sub, currScope} = subCfg;
+
+        sub.complete();
+      }
+
+      this.#subscriptions = null;
+      this.#subscriptions = [];
+    }
+  }
+
+  next(value)
+  {
+    if(this.closed == false && this.stopped == false)
+    {
+      let subs = this.#subscriptions;
+
+      for(const subCfg of subs)
+      {
+        const {sub, currScope} = subCfg;
+
+        sub.next(value);
+      }
+    }
+  }
+
+} /* end of rxSubject */
+
 const rxjs = {Observable:{create:(subscriber, destroyer, scope) => {
   return new RxObservable(subscriber, destroyer, scope);
-}}};
+}},
+Subject: rxSubject};
 
 /* of Operator */
 rxjs.of = (...args) => {
@@ -227,16 +319,17 @@ rxjs.of = (...args) => {
 /* interval Operator */
 rxjs.interval = (time) => {
 
-  let scope = {time:time};
+  // this gets cloned when observable is instantiated
+  let defaultScope = {time:time};
 
       // interval id to be used with subscription to unsubscribe
-      scope.iid = null;
+      defaultScope.iid = null;
 
       // number that gets incremented every time
-      scope.num = 0;
+      defaultScope.num = 0;
 
   // create a subscription object that is used to unsubscribe and clear the interval
-  return rxjs.Observable.create(function executor(subscriber) {
+  return rxjs.Observable.create(function subscriber(subscriber) {
     
     this.iid = setInterval( () => {
 
@@ -244,11 +337,11 @@ rxjs.interval = (time) => {
 
     }, this.time);
 
-  }, function destroyer () {
+  }, function unsubscriber () {
 
     clearInterval(this.iid);
 
-  }, scope);
+  }, defaultScope);
 
 };
 
@@ -277,7 +370,7 @@ rxjs.operators.filter = (predicate, thisArg) => {
   
   let ret;
   /* exec function */
-  let efnfilter = (val, index) => {
+  let efnfilter = function (val, index) {
 
     ret = predicate(val, index);
 
@@ -308,7 +401,7 @@ rxjs.operators.map = (transformer, thisArg) => {
   let ret;
 
   /* map function */
-  let efnmap = (val, index) => {
+  let efnmap = function(val, index) {
     
     ret = transformer(val, index);
     
