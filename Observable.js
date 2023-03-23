@@ -242,7 +242,6 @@ class rxSubject extends RxObservable
 
   error(msg)
   {
-
     if(this.closed == false && this.stopped == false)
     {
       this.error = true;
@@ -292,6 +291,19 @@ class rxSubject extends RxObservable
 
         sub.next(value);
       }
+    }
+  }
+
+  asObservable()
+  {
+    if(this.closed == false && this.stopped == false)
+    {
+      let scope = {subscribe: this.subscribe.bind(this)};
+
+      return rxjs.Observable.create(function subscriber(subscriber) {
+        this.subscribe(subscriber.next, subscriber.error, subscriber.complete);
+      }, function unsubscriber () {
+      }, scope);
     }
   }
 
@@ -443,7 +455,6 @@ rxjs.operators.take = function take(count) {
       }
 
     };
-
   }
   else
   {
