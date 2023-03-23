@@ -309,10 +309,43 @@ class rxSubject extends RxObservable
 
 } /* end of rxSubject */
 
+
+class rxBehaviorSubject extends rxSubject
+{
+  #currentValue
+  constructor(initial)
+  {
+    this.#currentValue = initial;
+  }
+
+  subscribe(next, error, complete)
+  {
+    if(this.closed == false && this.stopped == false)
+    {
+      let subCfg = this.getSubscriber(subscriber, error, complete);
+
+      this.#subscriptions.push(subCfg);
+
+      const {sub, currScope} = subCfg;
+
+      sub.next(this.#currentValue);
+    }
+  }
+
+  next(value)
+  {
+    this.#currentValue = value;
+
+    super.next(value);
+  }
+
+} /* end of rxBehaviorSubject */
+
 const rxjs = {Observable:{create:(subscriber, destroyer, scope) => {
   return new RxObservable(subscriber, destroyer, scope);
 }},
-Subject: rxSubject};
+Subject: rxSubject,
+BehaviorSubject: rxBehaviorSubject};
 
 /* of Operator */
 rxjs.of = (...args) => {
