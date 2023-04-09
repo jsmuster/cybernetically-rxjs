@@ -220,13 +220,27 @@ class rxSubject extends RxObservable
   closed = false;
   stopped = false;
   error = false;
+  
+  #subscriptions = null;
+  
+  constructor(subscriptions)
+  {
+    super();
 
-  #subscriptions = [];
+    if(subscriptions != null && (subscriptions instanceof Array))
+    {
+      this.#subscriptions = subscriptions;
+    }
+    else
+    {
+      this.#subscriptions = [];
+    }
+  }
 
   subscribe(subscriber, error, complete)
   {
     //let {sub, currScope} = this.getSubscriber(subscriber, error, complete);
-
+    
     this.#subscriptions.push(this.getSubscriber(subscriber, error, complete));
   }
 
@@ -274,8 +288,8 @@ class rxSubject extends RxObservable
         sub.complete();
       }
 
-      this.#subscriptions = null;
-      this.#subscriptions = [];
+      /* clear existing array */
+      this.#subscriptions.length = 0;
     }
   }
 
@@ -284,11 +298,11 @@ class rxSubject extends RxObservable
     if(this.closed == false && this.stopped == false)
     {
       let subs = this.#subscriptions;
-
+      
       for(const subCfg of subs)
       {
         const {sub, currScope} = subCfg;
-
+        
         sub.next(value);
       }
     }
@@ -312,40 +326,116 @@ class rxSubject extends RxObservable
 
 class rxBehaviorSubject extends rxSubject
 {
-  #currentValue
-  constructor(initial)
+  /* an array  */
+  #subscriptions = null;
+  /* current & last subject value */
+  #currentValue = undefined;
+  /* flag indicating that subject received a value */
+  isset = false;
+
+  constructor(initialValue)
   {
-    this.#currentValue = initial;
+    let subscriptions = [];
+
+    /* associate subscriptions with super reference */
+    super(subscriptions);
+
+    this.#subscriptions = subscriptions;
+
+    if(arguments.length > 0)
+    {
+      this.isset = true;
+      this.#currentValue = initialValue;
+    }
   }
 
   subscribe(next, error, complete)
   {
     if(this.closed == false && this.stopped == false)
     {
-      let subCfg = this.getSubscriber(subscriber, error, complete);
-
+      let subCfg = this.getSubscriber(next, error, complete);
+      
       this.#subscriptions.push(subCfg);
-
+      
       const {sub, currScope} = subCfg;
-
+      
       sub.next(this.#currentValue);
     }
   }
 
   next(value)
   {
-    this.#currentValue = value;
+    if(this.closed == false && this.stopped == false)
+    {
+      this.#currentValue = value;
 
-    super.next(value);
+      super.next(value);
+    }
   }
 
 } /* end of rxBehaviorSubject */
+
+class rxAsyncSubject extends rxSubject
+{
+  #subscriptions = null;
+
+  /* current & last subject value */
+  #currentValue = undefined;
+
+  /* flag indicating that subject received a value */
+  isset = false;
+
+  constructor()
+  {
+    let subscriptions = [];
+
+    /* associate subscriptions with super reference */
+    super(subscriptions);
+
+    this.#subscriptions = subscriptions;
+  }
+
+  /* sets the current value and isset flag */
+  next(value)
+  {
+    if(this.closed == false && this.stopped == false)
+    {
+      this.#currentValue = value;
+      this.isset = true;
+    }
+  }
+
+  /* propagates the last value into subscribers and complete the subject */
+  complete()
+  {
+    if(this.closed == false && this.stopped == false)
+    {
+      if(this.isset == true)
+      {
+        let subs = this.#subscriptions;
+
+        for(const subCfg of subs)
+        {
+          const {sub, currScope} = subCfg;
+
+          sub.next(this.#currentValue);
+        }
+      }
+
+      super.complete();
+
+      this.stopped = false;
+    }
+  }
+
+} /* end of rxAsyncSubject */
 
 const rxjs = {Observable:{create:(subscriber, destroyer, scope) => {
   return new RxObservable(subscriber, destroyer, scope);
 }},
 Subject: rxSubject,
-BehaviorSubject: rxBehaviorSubject};
+BehaviorSubject: rxBehaviorSubject,
+AsyncSubject: rxAsyncSubject};
 
 /* of Operator */
 rxjs.of = (...args) => {
