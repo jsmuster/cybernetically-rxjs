@@ -1,5 +1,10 @@
 # cybernetically-rxjs
-Cybernetically RxJS ES6 implementation
+Cybernetically RxJS ES6 implementation.
+
+This library includes few major creator operator functions, pipeable operators, and Subjects.
+
+I plan to update it soon and convert it for use in Typescript. My aim is to replicate the RxJS functionality to facilitate a seamless transition while retaining all features. I will reduce the code even further and then minify it to achieve the smallest footprint.
+
 
 See step by step tutorial here
 
